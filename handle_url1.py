@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import requests,json,MySQLdb,time,HTMLParser,sys,random
-from bs4 import BeautifulSoup
+import requests,json,MySQLdb,time,HTMLParser,sys,random,urlparse
+from pyquery import PyQuery as pq
+
 
 reload(sys)  
 sys.setdefaultencoding('utf8')  
 
 html = HTMLParser.HTMLParser()
 try:
-    conn = MySQLdb.Connect(host='127.0.0.1', user='root', passwd='123456',db='weixin')
+    conn = MySQLdb.Connect(host='192.168.234.128', user='root', passwd='123456',db='weixin')
 except Exception,e:
     print e
 
@@ -59,19 +60,19 @@ proxyHost = "proxy.abuyun.com"
 proxyPort = "9020"
 
 # 代理隧道验证信息
-proxyUser = ""
-proxyPass = ""
+proxyUser = "H3W0G4K7J2A7F3DD"
+proxyPass = "19830E05707707D4"
 
 proxyMeta = "http://%(user)s:%(pass)s@%(host)s:%(port)s" % {
-          "host" : proxyHost,
-            "port" : proxyPort,
-              "user" : proxyUser,
-                "pass" : proxyPass,
-    }
+    "host" : proxyHost,
+    "port" : proxyPort,
+    "user" : proxyUser,
+    "pass" : proxyPass,
+}
 
 proxies = {
-        "http"  : proxyMeta,
-            "https" : proxyMeta,
+    "http"  : proxyMeta,
+    "https" : proxyMeta,
 }
 
 
@@ -99,9 +100,9 @@ while True:
         # 加上UA
         headers = getRandomHeaders()
         weixin_url = "http://"+result[1]
-        c = requests.get(weixin_url, headers=headers, proxies=proxies) 
+        c = requests.get(weixin_url, headers=headers) 
         cookie = c.cookies
-        r = requests.get(weixin_url+'&f=json', headers=headers, cookies=cookie, proxies=proxies)
+        r = requests.get(weixin_url+'&f=json', headers=headers, cookies=cookie)
         #dict_s = json.loads(r.text)
         dict_s = r.json()
         
@@ -161,7 +162,6 @@ while True:
                     #table_name = table_name + '_201611'
                 
                 if datetime > 1487865600: # 2017-02-24 先写死
-
                     if 'app_msg_ext_info' in dict_x:
                         dict_c = dict_x['app_msg_ext_info']
 
@@ -175,21 +175,23 @@ while True:
                         #cover       = dict_c['cover']
                         now         = int(time.time())
                         
-                        article_content = sn_result = ''
                         if content_url != '':
-                            content_html = requests.get(content_url, headers=headers, proxies=proxies)
-                            soup = BeautifulSoup(content_html.content)
-                            results = soup.find('div', class_='rich_media_content')
-                            article_content = MySQLdb.escape_string(str(results))
+                            content_html = requests.get(content_url, headers=headers)
+                            d = pq(content_html.content)
+                            rich_media_content = d('.rich_media_content').html()
+                            if rich_media_content == None:
+                                print 'first no rich_media_content'
+                                article_content = MySQLdb.escape_string(d('.text_area').html().strip())
+                            else:
+                                article_content = MySQLdb.escape_string(d('.rich_media_content').html().strip())
 
-                            idx_pos = content_url.find('&idx=')
-                            if idx_pos == -1:
-                                continue
-                            idx = int(content_url[idx_pos+5:idx_pos+6])
-                    
-                            sn_pos = content_url.find('&sn=')
-                            sn = content_url[sn_pos+4:sn_pos+36]
-                    
+                            url_result = urlparse.urlparse(content_url) 
+                            url_params = urlparse.parse_qs(url_result.query,True)
+
+                            idx_list = url_params['idx'] 
+                            sn_list = url_params['sn'] 
+                            idx = int(idx_list[0])
+                            sn = str(sn_list[0])
                             select_sn_sql = "SELECT `wa_id` FROM " + table_name + " WHERE `wa_article_sn`=('%s')" % (sn)
                             cursor.execute(select_sn_sql)
                             conn.commit()
@@ -214,18 +216,22 @@ while True:
                                 # str_cover       = dict_i['cover']
                                 int_now         = int(time.time())
                                      
-                                str_content_html = requests.get(str_content_url, headers=headers, proxies=proxies)
-                                soup = BeautifulSoup(str_content_html.content)
-                                str_results = soup.find('div', class_='rich_media_content')
-                                str_article_content = MySQLdb.escape_string(str(str_results))
+                                str_content_html = requests.get(str_content_url, headers=headers)
+                                p = pq(str_content_html.content)
+                                unicode_rich_media_content = p('.rich_media_content').html()
+                                if unicode_rich_media_content == None:
+                                    print 'no rich_media_content'
+                                    str_article_content = MySQLdb.escape_string(p('.text_area').html().strip())
+                                else:
+                                    str_article_content = MySQLdb.escape_string(unicode_rich_media_content.strip())
                                   
-                                int_idx_pos = str_content_url.find('&idx=')
-                                if int_idx_pos == -1:
-                                    continue
-                                int_idx = int(str_content_url[int_idx_pos+5:int_idx_pos+6])
-                            
-                                str_sn_pos = str_content_url.find('&sn=')
-                                str_sn = str_content_url[str_sn_pos+4:str_sn_pos+36]
+                                str_url_result = urlparse.urlparse(str_content_url) 
+                                str_url_params = urlparse.parse_qs(str_url_result.query,True)
+
+                                int_idx_list = str_url_params['idx']
+                                str_sn_list = str_url_params['sn']
+                                int_idx = int(int_idx_list[0])
+                                str_sn = str(str_sn_list[0])
  
                                 select_str_sn_sql = "SELECT wa_id FROM " + table_name + " WHERE `wa_article_sn`=('%s')" % (str_sn)
                                 cursor.execute(select_str_sn_sql)
@@ -236,15 +242,13 @@ while True:
                                     cursor.execute(sql)
                                     conn.commit()
                         else:
+                            print 'single msg'
                             continue
                     else:
                         print 'no content,next'
                         continue
-            else:
-                print 'too old'
-                del_sql = "DELETE FROM `weixin_url` WHERE `id` = (%d)" % (int_id)
-                cursor.execute(del_sql)  
-                conn.commit()
+                else:
+                    print 'too old'
         del_sql = "DELETE FROM `weixin_url` WHERE `id` = (%d)" % (int_id)
         cursor.execute(del_sql)
         conn.commit()
