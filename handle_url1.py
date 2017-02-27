@@ -60,8 +60,8 @@ proxyHost = "proxy.abuyun.com"
 proxyPort = "9020"
 
 # 代理隧道验证信息
-proxyUser = "H3W0G4K7J2A7F3DD"
-proxyPass = "19830E05707707D4"
+proxyUser = ""
+proxyPass = ""
 
 proxyMeta = "http://%(user)s:%(pass)s@%(host)s:%(port)s" % {
     "host" : proxyHost,
@@ -100,9 +100,9 @@ while True:
         # 加上UA
         headers = getRandomHeaders()
         weixin_url = "http://"+result[1]
-        c = requests.get(weixin_url, headers=headers) 
+        c = requests.get(weixin_url, headers=headersm, proxies=proxies) 
         cookie = c.cookies
-        r = requests.get(weixin_url+'&f=json', headers=headers, cookies=cookie)
+        r = requests.get(weixin_url+'&f=json', headers=headers, cookies=cookie, proxies=proxies)
         #dict_s = json.loads(r.text)
         dict_s = r.json()
         
@@ -161,7 +161,7 @@ while True:
                 #else:
                     #table_name = table_name + '_201611'
                 
-                if datetime > 1487865600: # 2017-02-24 先写死
+                if datetime > 1488038400: # 2017-02-26 先写死
                     if 'app_msg_ext_info' in dict_x:
                         dict_c = dict_x['app_msg_ext_info']
 
@@ -176,7 +176,7 @@ while True:
                         now         = int(time.time())
                         
                         if content_url != '':
-                            content_html = requests.get(content_url, headers=headers)
+                            content_html = requests.get(content_url, headers=headers, proxies=proxies)
                             d = pq(content_html.content)
                             rich_media_content = d('.rich_media_content').html()
                             if rich_media_content == None:
@@ -216,7 +216,7 @@ while True:
                                 # str_cover       = dict_i['cover']
                                 int_now         = int(time.time())
                                      
-                                str_content_html = requests.get(str_content_url, headers=headers)
+                                str_content_html = requests.get(str_content_url, headers=headers, proxies=proxies)
                                 p = pq(str_content_html.content)
                                 unicode_rich_media_content = p('.rich_media_content').html()
                                 if unicode_rich_media_content == None:
