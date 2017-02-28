@@ -1,8 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import requests,json,MySQLdb,time,HTMLParser,sys,random,urlparse
+import requests,json,MySQLdb,time,HTMLParser,sys,random,urlparse,logging
 from pyquery import PyQuery as pq
+
+# 增加重试连接次数
+requests.adapters.DEFAULT_RETRIES = 5
+# 关闭多余的连接
+s = requests.session()
+s.keep_alive = False
+
+# 记录日志
+log_file = time.strftime('%Y-%m-%d')+'-log.log'
+logging.basicConfig(filename=log_file,level=logging.DEBUG)
 
 
 reload(sys)  
@@ -60,8 +70,8 @@ proxyHost = "proxy.abuyun.com"
 proxyPort = "9020"
 
 # 代理隧道验证信息
-proxyUser = ""
-proxyPass = ""
+proxyUser = "H3W0G4K7J2A7F3DD"
+proxyPass = "19830E05707707D4"
 
 proxyMeta = "http://%(user)s:%(pass)s@%(host)s:%(port)s" % {
     "host" : proxyHost,
@@ -84,6 +94,7 @@ def getRandomHeaders():
     headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     return headers
 
+
 while True:
     sql = "SELECT `id`, `url` FROM `weixin_url` limit 1"
     cursor.execute(sql)
@@ -92,23 +103,35 @@ while True:
 
     if result == None:
         print 'sleep 1 seconds,wait data......'
+        logging.debug('sleep 1 seconds,wait data......')
         time.sleep(1)
         continue
     else:
         print 'running......'
+        logging.debug('running......')
         int_id = result[0]
+        print int_id
+        logging.debug(int_id)
         # 加上UA
         headers = getRandomHeaders()
         weixin_url = "http://"+result[1]
-        c = requests.get(weixin_url, headers=headersm, proxies=proxies) 
+        c = s.get(weixin_url, headers=headers, proxies=proxies) 
         cookie = c.cookies
-        r = requests.get(weixin_url+'&f=json', headers=headers, cookies=cookie, proxies=proxies)
+        r = s.get(weixin_url+'&f=json', headers=headers, cookies=cookie, proxies=proxies)
         #dict_s = json.loads(r.text)
-        dict_s = r.json()
+        try:
+            dict_s = r.json()
+        except Exception:
+            print 'no json'
+            print r.content
+            logging.debug('no json')
+            logging.debug(r.content)
+            continue
         
         # no content,sleep 
         if 'general_msg_list' not in dict_s:
             print dict_s
+            logging.debug(dict_s)
             if dict_s['ret'] == -3:
                 # 删除这条记录
                 delete_sql = "DELETE FROM `weixin_url` WHERE `id`=(%d) " % (int_id)
@@ -116,8 +139,9 @@ while True:
                 conn.commit()
                 continue
             elif dict_s['ret'] == -6:
-                print 'sleep 30 seconds......'
-                time.sleep(30)
+                print 'sleep 60 seconds......'
+                logging.debug('sleep 60 seconds......')
+                time.sleep(60)
                 continue
 
         json_d = dict_s['general_msg_list']
@@ -133,6 +157,7 @@ while True:
 
         if json_d.strip() == '':
             print 'empty, next'
+            logging.debug('empty, next')
             # 删除这条记录
             del_sql = "DELETE FROM `weixin_url` WHERE `id`=(%d) " % (int_id)
             cursor.execute(del_sql)
@@ -145,6 +170,7 @@ while True:
             
             if len(list_x) == 0:
                 print 'list is empty,next'
+                logging.debug('list is empty,next')
                 # 删除
                 sql_of_delete = "DELETE FROM `weixin_url` WHERE `id`=(%d) " % (int_id)
                 cursor.execute(sql_of_delete)
@@ -176,12 +202,15 @@ while True:
                         now         = int(time.time())
                         
                         if content_url != '':
-                            content_html = requests.get(content_url, headers=headers, proxies=proxies)
+                            content_html = s.get(content_url, headers=headers, proxies=proxies)
                             d = pq(content_html.content)
                             rich_media_content = d('.rich_media_content').html()
                             if rich_media_content == None:
                                 print 'first no rich_media_content'
-                                article_content = MySQLdb.escape_string(d('.text_area').html().strip())
+                                logging.debug('first no rich_media_content')
+                                logging.debug(content_html.content)
+                                #article_content = MySQLdb.escape_string(d('.text_area').html().strip())
+                                article_content = 'wrong'
                             else:
                                 article_content = MySQLdb.escape_string(d('.rich_media_content').html().strip())
 
@@ -192,6 +221,7 @@ while True:
                             sn_list = url_params['sn'] 
                             idx = int(idx_list[0])
                             sn = str(sn_list[0])
+
                             select_sn_sql = "SELECT `wa_id` FROM " + table_name + " WHERE `wa_article_sn`=('%s')" % (sn)
                             cursor.execute(select_sn_sql)
                             conn.commit()
@@ -201,6 +231,8 @@ while True:
                                 insert_sql = "INSERT INTO " + table_name + " (`wa_account_biz`, `wa_title`, `wa_title_json`, `wa_summary`, `wa_summary_json`, `wa_article_sn`, `wa_url`, `wa_idx`, `wa_public_time`, `wa_data_type`, `wa_collection_time`, `wa_content`) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', %d, %d, %d, %d, '%s')" % (biz_code, title, title_json, digest, digest_json, sn, content_url, idx, datetime, 3, now, article_content)
                                 cursor.execute(insert_sql)
                                 conn.commit()
+                                print 'insert first success'
+                                logging.debug('insert first success')
                         is_multi = dict_c['is_multi']
 
                         if is_multi == 1:        
@@ -216,12 +248,21 @@ while True:
                                 # str_cover       = dict_i['cover']
                                 int_now         = int(time.time())
                                      
-                                str_content_html = requests.get(str_content_url, headers=headers, proxies=proxies)
-                                p = pq(str_content_html.content)
+                                str_content_html = s.get(str_content_url, headers=headers, proxies=proxies)
+                                try:
+                                    p = pq(str_content_html.content)
+                                except Exception:
+                                    print 'pq has problem'
+                                    logging.debug('pq has problem')
+                                    logging.debug(str_content_html.content)
+                                    continue
+                                
                                 unicode_rich_media_content = p('.rich_media_content').html()
                                 if unicode_rich_media_content == None:
                                     print 'no rich_media_content'
-                                    str_article_content = MySQLdb.escape_string(p('.text_area').html().strip())
+                                    logging.debug('no rich_media_content')
+                                    #str_article_content = MySQLdb.escape_string(p('.text_area').html().strip())
+                                    str_article_content  = 'wrong'
                                 else:
                                     str_article_content = MySQLdb.escape_string(unicode_rich_media_content.strip())
                                   
@@ -241,15 +282,22 @@ while True:
                                     sql = "INSERT INTO " + table_name + "(`wa_account_biz`, `wa_title`, `wa_title_json`, `wa_summary`, `wa_summary_json`, `wa_article_sn`, `wa_url`, `wa_idx`, `wa_public_time`, `wa_data_type`, `wa_collection_time`, `wa_content`) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', %d, %d, %d, %d, '%s')" % (biz_code, str_title, str_title_json, str_digest, str_digest_json, str_sn, str_content_url, int_idx, datetime, 3, int_now, str_article_content)
                                     cursor.execute(sql)
                                     conn.commit()
+                                    print 'other insert success'
+                                    logging.debug('other insert success')
                         else:
                             print 'single msg'
+                            logging.debug('single msg')
                             continue
                     else:
                         print 'no content,next'
+                        logging.debug('no content,next')
                         continue
                 else:
                     print 'too old'
+                    logging.debug('too old')
+                    continue
         del_sql = "DELETE FROM `weixin_url` WHERE `id` = (%d)" % (int_id)
         cursor.execute(del_sql)
         conn.commit()
         print 'success'
+        logging.debug('success')
