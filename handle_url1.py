@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import requests,json,MySQLdb,time,HTMLParser,sys,random,urlparse,logging
+import requests,json,MySQLdb,time,HTMLParser,sys,random,urlparse,logging,datetime
 from pyquery import PyQuery as pq
+reload(sys)  
+sys.setdefaultencoding('utf8')  
 
 # 增加重试连接次数
 requests.adapters.DEFAULT_RETRIES = 5
@@ -14,11 +16,23 @@ s.keep_alive = False
 log_file = time.strftime('%Y-%m-%d')+'-log.log'
 logging.basicConfig(filename=log_file,level=logging.DEBUG)
 
+# 时间 昨天晚上6点到今天晚上6点之间24小时的数据 每天晚上6点之后执行就可以
+# 昨天6点
+now_time = datetime.datetime.now()
+yes_time = now_time + datetime.timedelta(days=-1)
+yes_six_time = yes_time.strftime("%Y-%m-%d 18:00:00")
+yes_timearray = time.strptime(yes_six_time, "%Y-%m-%d %H:%M:%S")
+yes_timestamp = int(time.mktime(yes_timearray))
 
-reload(sys)  
-sys.setdefaultencoding('utf8')  
+# 今天6点
+now_time = datetime.datetime.now()
+today_six_time = now_time.strftime("%Y-%m-%d 18:00:00")
+today_timearray = time.strptime(today_six_time, "%Y-%m-%d %H:%M:%S")
+today_timestamp = int(time.mktime(today_timearray))
+
 
 html = HTMLParser.HTMLParser()
+# 数据库设置
 try:
     conn = MySQLdb.Connect(host='192.168.234.128', user='root', passwd='123456',db='weixin')
 except Exception,e:
@@ -29,7 +43,8 @@ cursor = conn.cursor()
 cursor.execute('SET NAMES utf8;')
 cursor.execute('SET character_set_connection=utf8;')
 cursor.execute('SET CHARACTER SET utf8mb4;')
-    
+
+# headers设置   
 userAgents = [{'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:5.0) Gecko/20100101 Firefox/5.0'},
     {"User-Agent": "Mozilla/5.0 (Windows; U; Windows NT 5.1; zh-CN; rv:1.9.1) Gecko/20090624 Firefox/3.5"},
     {'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6'},
@@ -65,13 +80,21 @@ userAgents = [{'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:5.0) Gecko/
     {"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.6; rv:2.0.1) Gecko/20100101"},
     {"User-Agent":"Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1"}]
 
+def getRandomHeaders():
+    headers = {}
+    headers["User-Agent"] = random.choice(userAgents)["User-Agent"]
+    headers["Accept-Language"] = "zh-cn,zh;q=0.8;"
+    headers["Cache-Control"] = "max-age=0"
+    headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    return headers
+
 # 代理服务器
 proxyHost = "proxy.abuyun.com"
 proxyPort = "9020"
 
 # 代理隧道验证信息
-proxyUser = "H3W0G4K7J2A7F3DD"
-proxyPass = "19830E05707707D4"
+proxyUser = ""
+proxyPass = ""
 
 proxyMeta = "http://%(user)s:%(pass)s@%(host)s:%(port)s" % {
     "host" : proxyHost,
@@ -86,16 +109,8 @@ proxies = {
 }
 
 
-def getRandomHeaders():
-    headers = {}
-    headers["User-Agent"] = random.choice(userAgents)["User-Agent"]
-    headers["Accept-Language"] = "zh-cn,zh;q=0.8;"
-    headers["Cache-Control"] = "max-age=0"
-    headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-    return headers
-
-
 while True:
+    # 每次拿一个
     sql = "SELECT `id`, `url` FROM `weixin_url` limit 1"
     cursor.execute(sql)
     result = cursor.fetchone()
@@ -180,14 +195,14 @@ while True:
                 dict_comm_msg_info = dict_x['comm_msg_info']
                 datetime = dict_comm_msg_info['datetime']
                     
-                table_name = 'wyx_weixin_article_201702'
-                #separate_time = 1477929600 # 2016-11-01
-                #if datetime < separate_time:
-                    #table_name = table_name + '_201610'
-                #else:
-                    #table_name = table_name + '_201611'
+                # 表名手写
+                table_name = 'wyx_weixin_article'
+                if datetime <= 1488297600: # 小于这个月
+                    table_name = table_name + '_201702'
+                else: 
+                    table_name = table_name + '_201703'
                 
-                if datetime > 1488038400: # 2017-02-26 先写死
+                if datetime >= yes_timestamp and datetime < today_timestamp: # 昨天晚上6点和今天晚上6点之间24小时的数据
                     if 'app_msg_ext_info' in dict_x:
                         dict_c = dict_x['app_msg_ext_info']
 
@@ -201,16 +216,31 @@ while True:
                         #cover       = dict_c['cover']
                         now         = int(time.time())
                         
+                        rich_media_content = None
                         if content_url != '':
-                            content_html = s.get(content_url, headers=headers, proxies=proxies)
-                            d = pq(content_html.content)
-                            rich_media_content = d('.rich_media_content').html()
+                            try:
+                                content_html = s.get(content_url, headers=headers, proxies=proxies)
+                                d = pq(content_html.content)
+                                rich_media_content = d('.rich_media_content').html()
+                            except Exception, e:
+                                print e
+                                print 'd has problem'
+                                logging.debug('d has problem')
+                                logging.debug(content_url)
+                                logging.debug(e)
+                                logging.debug(content_html.content)
+
+                            
                             if rich_media_content == None:
                                 print 'first no rich_media_content'
                                 logging.debug('first no rich_media_content')
                                 logging.debug(content_html.content)
-                                #article_content = MySQLdb.escape_string(d('.text_area').html().strip())
-                                article_content = 'wrong'
+                                try:
+                                    article_content = MySQLdb.escape_string(d('.text_area').html().strip())
+                                except Exception as e:
+                                    print e
+                                    logging.debug(e)
+                                    article_content = 'wrong'
                             else:
                                 article_content = MySQLdb.escape_string(d('.rich_media_content').html().strip())
 
@@ -261,8 +291,13 @@ while True:
                                 if unicode_rich_media_content == None:
                                     print 'no rich_media_content'
                                     logging.debug('no rich_media_content')
-                                    #str_article_content = MySQLdb.escape_string(p('.text_area').html().strip())
-                                    str_article_content  = 'wrong'
+                                    logging.debug(str_content_html.content)
+                                    try:
+                                        str_article_content = MySQLdb.escape_string(d('.text_area').html().strip())
+                                    except Exception as e:
+                                        print e
+                                        logging.debug(e)
+                                        str_article_content = 'wrong'
                                 else:
                                     str_article_content = MySQLdb.escape_string(unicode_rich_media_content.strip())
                                   
@@ -293,11 +328,15 @@ while True:
                         logging.debug('no content,next')
                         continue
                 else:
-                    print 'too old'
-                    logging.debug('too old')
+                    print 'time is out of range'
+                    logging.debug('time is out of range')
                     continue
         del_sql = "DELETE FROM `weixin_url` WHERE `id` = (%d)" % (int_id)
         cursor.execute(del_sql)
         conn.commit()
         print 'success'
         logging.debug('success')
+
+
+
+
